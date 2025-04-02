@@ -23,6 +23,15 @@ def parse_args(args=None):
     prelaunch_parser.add_argument('+arg', type=str, action='append', nargs='+',
         metavar=('--argname', 'value'),
         help='Add an argument with zero or more mutually exclusive values')
+    prelaunch_parser.add_argument('+randarg', type=str, action='append', nargs='+',
+        metavar='RANDARG',
+        help='Add an argument with randomly sampled values; type can be:\n'
+             ' - int: requires 4 args (--name int min_val max_val)\n'
+             ' - float: requires 4 args (--name float min_val max_val [log])\n'
+             '   optional "log" parameter enables logarithmic sampling\n'
+             ' - choice: requires 3+ args (--name choice [choice1,choice2,...])')
+    prelaunch_parser.add_argument('+trials', type=int, default=1,
+        help='Number of random trials to generate when using +randarg')
     prelaunch_parser.add_argument('+pos-arg', type=str, action='append', nargs='+',
         metavar=('value', 'value'),
         help='Add a positional argument with one or more mutually exclusive values')

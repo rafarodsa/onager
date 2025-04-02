@@ -58,6 +58,27 @@ Argument types:
 - Add an argument with zero or more mutually exclusive values
 
 ```
++randarg --argname type min_val max_val
+```
+- Add an argument with a randomly sampled value
+- Supported types:
+  - `int`: Sample an integer between min_val and max_val (inclusive)
+  - `float`: Sample a float between min_val and max_val
+    - Optional: Add `log` parameter to sample in logarithmic space: `+randarg --lr float 0.00001 0.1 log`
+    - Float values are formatted with 5 decimal places for readability
+    - Very small (<0.001) or large (≥10000) numbers use scientific notation
+  - `choice`: Sample from a list of options. Format: `+randarg --opt choice [option1,option2,option3]` or `+randarg --opt choice option1,option2,option3`
+- Each +randarg will generate a single random value that will be treated as a fixed value in the grid search
+- Use with +trials to generate multiple random configurations in a single command
+
+```
++trials N
+```
+- Specify the number of random trials to generate when using +randarg (default: 1)
+- When N > 1, N different random combinations will be sampled from all +randarg parameters
+- Each trial is treated as a grid dimension and is combined with regular grid parameters (+arg)
+
+```
 +pos-arg value [value ...]
 ```
 
@@ -332,3 +353,93 @@ Sometimes a cluster is overkill, and you just want to launch jobs locally. Onage
 onager prelaunch +jobname experiment1 +command ./myscript +pos-arg {1..10} +tag
 onager launch --backend local --jobname experiment1 --maxtasks 4
 ```
+
+### Using Random Search
+
+If you want to use random search instead of grid search, you can use `+randarg` to sample random values:
+
+```
+onager prelaunch +command "python mnist.py --epochs 1 --gamma 0.7 --no-cuda" +jobname mnist_random +randarg --lr float 0.1 5.0 +randarg --batch-size int 16 128 +randarg --seed int 0 10 +tag --run-tag
+```
+
+This will generate a single command with randomly sampled values for learning rate (between 0.1 and 5.0), batch size (between 16 and 128 as an integer), and seed (between 0 and 10 as an integer).
+
+To generate multiple random trials in a single command, use the `+trials` parameter:
+
+```
+onager prelaunch +command "python mnist.py --epochs 1 --gamma 0.7 --no-cuda" +jobname mnist_random +randarg --lr float 0.1 5.0 +randarg --batch-size int 16 128 +randarg --seed int 0 10 +trials 10 +tag --run-tag
+```
+
+This will create 10 different commands, each with a different random combination of learning rate, batch size, and seed values.
+
+You can also combine random parameters with grid search parameters:
+
+```
+onager prelaunch +command "python mnist.py --epochs 1 --gamma 0.7 --no-cuda" +jobname mnist_mixed +randarg --lr float 0.1 5.0 +arg --optimizer adam sgd rmsprop +trials 5 +tag --run-tag
+```
+
+This will generate 15 commands (5 random trials × 3 optimizer options), where each command has a randomly sampled learning rate combined with one of the optimizer options.
+
+You can also randomly select from a predefined list of choices:
+
+```
+onager prelaunch +command "python mnist.py --epochs 1 --gamma 0.7 --no-cuda" +jobname mnist_choice +randarg --optimizer choice [adam,sgd,rmsprop] 0 +arg --lr 0.001 0.01 0.1 +trials 2 +tag --run-tag
+```
+
+Output (example):
+```
+python mnist.py --epochs 1 --gamma 0.7 --no-cuda --optimizer sgd --lr 0.001 --run-tag mnist_choice_1__optimizer_sgd__lr_0.001
+python mnist.py --epochs 1 --gamma 0.7 --no-cuda --optimizer sgd --lr 0.01 --run-tag mnist_choice_2__optimizer_sgd__lr_0.01
+python mnist.py --epochs 1 --gamma 0.7 --no-cuda --optimizer sgd --lr 0.1 --run-tag mnist_choice_3__optimizer_sgd__lr_0.1
+python mnist.py --epochs 1 --gamma 0.7 --no-cuda --optimizer adam --lr 0.001 --run-tag mnist_choice_4__optimizer_adam__lr_0.001
+python mnist.py --epochs 1 --gamma 0.7 --no-cuda --optimizer adam --lr 0.01 --run-tag mnist_choice_5__optimizer_adam__lr_0.01
+python mnist.py --epochs 1 --gamma 0.7 --no-cuda --optimizer adam --lr 0.1 --run-tag mnist_choice_6__optimizer_adam__lr_0.1
+```
+
+### Examples with Random Parameters
+
+#### Linear vs Log Sampling
+For parameters that span multiple orders of magnitude, log sampling often gives better coverage:
+
+```
+# Linear sampling (uniform across the range)
+onager prelaunch +command python train.py +jobname linear_sample +randarg --lr float 0.00001 0.1 +trials 5 +tag
+
+# Log sampling (more samples in lower ranges)
+onager prelaunch +command python train.py +jobname log_sample +randarg --lr float 0.00001 0.1 log +trials 5 +tag
+```
+
+The log sampling will concentrate more values in the lower range, which is often desirable for learning rates that typically work better in ranges like 0.001-0.01 than in ranges like 0.05-0.1.
+
+#### Random Choice Parameters
+Sample from a discrete set of options:
+
+```
+onager prelaunch +command python train.py +jobname optimizer_test +randarg --optimizer choice [adam,sgd,rmsprop] +trials 3 +tag
+```
+
+#### Large Parameter Ranges with Scientific Notation
+Scientific notation is automatically used for very small or large values:
+
+```
+# Small values use scientific notation in tags
+onager prelaunch +command python train.py +jobname small_values +randarg --weight_decay float 0.0000001 0.00001 +tag
+
+# Large values use scientific notation in tags
+onager prelaunch +command python train.py +jobname large_values +randarg --scale float 10000 1000000 +tag
+```
+
+#### Multiple Random Parameters with Multiple Trials
+Combine multiple random parameters with multiple trials to explore a wide range of configurations:
+
+```
+onager prelaunch +command python train.py +jobname hyperparameter_search \
+  +randarg --lr float 0.0001 0.01 log \
+  +randarg --dropout float 0.1 0.5 \
+  +randarg --optimizer choice [adam,sgd,rmsprop] \
+  +randarg --batch_size int 16 128 \
+  +trials 10 +tag
+```
+
+This would generate 10 different random combinations of learning rate, dropout rate, optimizer, and batch size.
+</rewritten_file>

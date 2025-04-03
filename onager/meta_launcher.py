@@ -244,6 +244,10 @@ def meta_launch(args):
         
         # Generate specified number of random trials
         if num_trials > 1:
+            trial_commands = []
+            # Add a special trial parameter to ensure one command per trial
+            variables['__trial__'] = list(range(num_trials))
+            
             # Generate trial-based commands
             for trial_idx in range(num_trials):
                 # Create a map of random values for this trial
@@ -260,8 +264,17 @@ def meta_launch(args):
                 # Add grid search based on trial_values for all random parameters
                 cmd_prefix_list = [base_cmd]
                 
-                # First add all grid search parameters
+                # First add positional arguments
+                for value_list in pos_variables:
+                    cmd_prefix_list = [prefix + ' {}' for prefix in cmd_prefix_list]
+                    cmd_prefix_list = [prefix.format(v) for v in value_list for prefix in cmd_prefix_list]
+                
+                # Then add all grid search parameters
                 for key, value_list in trial_variables.items():
+                    # Skip the virtual '__trial__' parameter 
+                    if key == '__trial__':
+                        continue
+                        
                     cmd_prefix_list = [prefix + ' ' + key for prefix in cmd_prefix_list]
                     if len(value_list) > 0:
                         cmd_prefix_list = [prefix + VAR_SEP + '{}' for prefix in cmd_prefix_list]
@@ -414,40 +427,79 @@ def meta_launch(args):
             
             new_cmd_list = []
             for i, cmd in enumerate(cmd_prefix_list, 1):
-                # Extract parameter values from the command
-                param_values = {}
+                # Create the components for the tag
+                tag_components = []
                 
-                # Process each random parameter to create tag components
-                for arg_name in rand_variables.keys():
-                    # Extract the parameter value from the command string
-                    if arg_name.startswith('--'):
-                        # Match pattern like "--param_name value" or "--param_name=value"
+                # 1. Start with the jobname and trial number
+                tag_components.append(args.jobname + SEP + tag_number_format.format(i))
+                
+                # 2. Extract all parameter values from the command
+                # First find all positional arguments (they appear without parameter names)
+                cmd_parts = cmd.split()
+                base_cmd_parts = base_cmd.split()
+                
+                # Skip the base command to find positional arguments
+                pos_values = []
+                pos_idx = 0
+                param_mode = False
+                
+                for j, part in enumerate(cmd_parts):
+                    # Skip the base command parts
+                    if j < len(base_cmd_parts):
+                        continue
+                        
+                    # If this is a parameter name (starts with --), next part is its value
+                    if part.startswith('--'):
+                        param_mode = True
+                        continue
+                    
+                    # If we're in parameter mode, this is a parameter value
+                    if param_mode:
+                        param_mode = False
+                        continue
+                        
+                    # This must be a positional argument
+                    pos_values.append(part)
+                
+                # Add positional arguments to tag components
+                for pos_idx, pos_value in enumerate(pos_values):
+                    if pos_idx < len(pos_variables) and len(pos_variables[pos_idx]) > 0:
+                        tag_components.append(f"__pos{pos_idx}__" + SEP + pos_value)
+                
+                # 3. Extract named parameter values
+                # Random parameters
+                for arg_name, (param_type, min_val, max_val, sampling_space) in rand_variables.items():
+                    match = re.search(r'{}[= ]([^ ]+)'.format(re.escape(arg_name)), cmd)
+                    if match:
+                        value = match.group(1)
+                        # Format float values appropriately
+                        if param_type == 'float':
+                            try:
+                                float_val = float(value)
+                                if abs(float_val) < 0.001 or abs(float_val) >= 10000:
+                                    value = '{:.5e}'.format(float_val)
+                                else:
+                                    value = '{:.5f}'.format(float_val)
+                            except ValueError:
+                                pass
+                        
+                        # Add to tag components with cleaned parameter name
+                        keyname = arg_name.replace('_', '').replace('-', '').replace('=','_').replace('/','.')
+                        tag_components.append(keyname + SEP + value)
+                
+                # Grid parameters
+                for arg_name, value_list in variables.items():
+                    if arg_name != '__trial__' and len(value_list) > 0:
                         match = re.search(r'{}[= ]([^ ]+)'.format(re.escape(arg_name)), cmd)
                         if match:
-                            param_values[arg_name] = match.group(1)
+                            value = match.group(1)
+                            keyname = arg_name.replace('_', '').replace('-', '').replace('=','_').replace('/','.')
+                            tag_components.append(keyname + SEP + value)
                 
-                # Create parameter suffix for the tag
-                param_suffix = ''
-                for arg_name, value in param_values.items():
-                    # Format similarly to how it's done in non-trial tags
-                    keyname = arg_name.replace('_', '').replace('-', '').replace('=','_').replace('/','.')
-                    
-                    # Format float values to 5 decimal places
-                    if arg_name in rand_variables and rand_variables[arg_name][0] == 'float':
-                        try:
-                            float_val = float(value)
-                            # Use scientific notation for very small or large numbers
-                            if abs(float_val) < 0.001 or abs(float_val) >= 10000:
-                                value = '{:.5e}'.format(float_val)
-                            else:
-                                value = '{:.5f}'.format(float_val)
-                        except ValueError:
-                            pass  # Keep original value if conversion fails
-                            
-                    param_suffix += WSEP + keyname + SEP + value
+                # 4. Join all tag components with double underscore separator
+                tag = WSEP.join(tag_components)
                 
-                # Combine jobname, trial number, and parameter values
-                tag = args.jobname + SEP + tag_number_format.format(i) + param_suffix
+                # 5. Add the tag to the command
                 new_cmd_list.append(cmd + ' ' + args.tag + VAR_SEP + tag)
             
             cmd_prefix_list = new_cmd_list

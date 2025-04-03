@@ -442,4 +442,3 @@ onager prelaunch +command python train.py +jobname hyperparameter_search \
 ```
 
 This would generate 10 different random combinations of learning rate, dropout rate, optimizer, and batch size.
-</rewritten_file>
